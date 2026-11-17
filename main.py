@@ -1,41 +1,38 @@
 import pygame
-from game.game_engine import GameEngine
 
-# Initialize pygame/Start application
-pygame.init()
+from game.game_engine import GameEngine
 
 # Screen dimensions
 WIDTH, HEIGHT = 600, 500
-SCREEN = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Marble Tilt Maze - Pygame Version")
-
-# Clock
-clock = pygame.time.Clock()
 FPS = 60
 
-# Game loop
-engine = GameEngine(WIDTH, HEIGHT)
 
 def main():
+    # Initialize pygame / start application
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Marble Tilt Maze - Pygame Version")
+
+    clock = pygame.time.Clock()
+    engine = GameEngine(WIDTH, HEIGHT)
+
     running = True
     while running:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
             engine.handle_event(event)
 
-        engine.handle_input()
+        # input + physics + collision all live in the engine
         engine.update()
-        engine.render(SCREEN)
+        engine.render(screen)
 
         pygame.display.flip()
         clock.tick(FPS)
 
-        # the end screen waits for the player, so the loop exits only on request
         if engine.should_quit:
             running = False
 
     pygame.quit()
+
 
 if __name__ == "__main__":
     main()
