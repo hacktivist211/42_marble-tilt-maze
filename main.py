@@ -31,6 +31,10 @@ def main():
         pygame.display.flip()
         clock.tick(FPS)
 
+        # the end screen waits for the player, so the loop exits only on request
+        if engine.should_quit:
+            running = False
+
     pygame.quit()
 
 if __name__ == "__main__":
