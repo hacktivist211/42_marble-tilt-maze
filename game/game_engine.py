@@ -1,4 +1,7 @@
+import math
+
 import pygame
+
 from .marble import Marble
 from .wall import Wall
 
@@ -8,6 +11,9 @@ WHITE = (255, 255, 255)
 DARK = (40, 40, 50)
 WALL_COLOR = (90, 90, 110)
 GOAL_COLOR = (60, 200, 120)
+
+RESTITUTION = 0.30          # how bouncy the walls are (same feel as before)
+
 
 class GameEngine:
     def __init__(self, width, height):
@@ -78,16 +84,20 @@ class GameEngine:
         self.marble.vx *= (1 - self.friction)
         self.marble.vy *= (1 - self.friction)
 
-        speed = (self.marble.vx ** 2 + self.marble.vy ** 2) ** 0.5
+        speed = math.hypot(self.marble.vx, self.marble.vy)
         if speed > self.max_speed:
             scale = self.max_speed / speed
             self.marble.vx *= scale
             self.marble.vy *= scale
+            speed = self.max_speed
 
-        self.marble.x += self.marble.vx
-        self.marble.y += self.marble.vy
-
-        self._resolve_wall_collisions()
+        # Sub-step the movement so a fast marble can never tunnel through a
+        # 16 px wall (previously a 9 px/frame marble could skip one).
+        steps = max(1, int(math.ceil(speed / (self.marble.radius * 0.5))))
+        for _ in range(steps):
+            self.marble.x += self.marble.vx / steps
+            self.marble.y += self.marble.vy / steps
+            self._resolve_wall_collisions()
 
         gx = self.goal_x - self.marble.x
         gy = self.goal_y - self.marble.y
@@ -96,35 +106,59 @@ class GameEngine:
             self.result = "solved"
             self.finish_time_ms = elapsed
 
+    def _hit(self, wall):
+        """Circle vs rectangle: returns (nx, ny, penetration) or None.
+
+        This is the fix for Task 1. The old test compared the marble's square
+        bounding box (colliderect) with the wall, so near a corner the box could
+        overlap the wall before the round marble touched it and the marble
+        bounced off empty space. Here we use the closest point on the rectangle
+        to the marble centre, which is exact for a circle.
+        """
+        r = wall.rect()
+        m = self.marble
+        closest_x = min(max(m.x, r.left), r.right)
+        closest_y = min(max(m.y, r.top), r.bottom)
+        dx, dy = m.x - closest_x, m.y - closest_y
+        d2 = dx * dx + dy * dy
+        radius = m.radius
+        if d2 > radius * radius:
+            return None                      # the round marble does not touch the wall
+
+        if d2 > 1e-9:                        # touching an edge or a corner
+            d = math.sqrt(d2)
+            return dx / d, dy / d, radius - d
+
+        # Centre is inside the rectangle: push out along the shallowest axis.
+        left, right = m.x - r.left, r.right - m.x
+        top, bottom = m.y - r.top, r.bottom - m.y
+        smallest = min(left, right, top, bottom)
+        if smallest == left:
+            return -1.0, 0.0, left + radius
+        if smallest == right:
+            return 1.0, 0.0, right + radius
+        if smallest == top:
+            return 0.0, -1.0, top + radius
+        return 0.0, 1.0, bottom + radius
+
     def _resolve_wall_collisions(self):
-        for wall in self.walls:
-            marble_rect = self.marble.rect()
-            wall_rect = wall.rect()
+        for _ in range(3):                   # repeat to settle corner contacts
+            moved = False
+            for wall in self.walls:
+                hit = self._hit(wall)
+                if hit is None:
+                    continue
+                nx, ny, penetration = hit
+                self.marble.x += nx * penetration
+                self.marble.y += ny * penetration
 
-            # NOTE: this checks a simple bounding-box overlap
-            # (colliderect) between the marble's square bounding box
-            # and the wall, instead of a true circle-vs-rectangle
-            # distance test. Near a wall's corner, the marble's
-            # bounding square can overlap the wall rect well before
-            # the actual round marble visually touches it, causing an
-            # early "phantom" bounce off empty space right next to
-            # corners. See Task 1 in the README.
-            if marble_rect.colliderect(wall_rect):
-                overlap_x = min(marble_rect.right, wall_rect.right) - max(marble_rect.left, wall_rect.left)
-                overlap_y = min(marble_rect.bottom, wall_rect.bottom) - max(marble_rect.top, wall_rect.top)
-
-                if overlap_x < overlap_y:
-                    if self.marble.x < wall_rect.centerx:
-                        self.marble.x -= overlap_x
-                    else:
-                        self.marble.x += overlap_x
-                    self.marble.vx *= -0.3
-                else:
-                    if self.marble.y < wall_rect.centery:
-                        self.marble.y -= overlap_y
-                    else:
-                        self.marble.y += overlap_y
-                    self.marble.vy *= -0.3
+                vn = self.marble.vx * nx + self.marble.vy * ny
+                if vn < 0:                   # only reflect if closing on the wall
+                    self.marble.vx -= (1 + RESTITUTION) * vn * nx
+                    self.marble.vy -= (1 + RESTITUTION) * vn * ny
+                moved = True
+            if not moved:
+                break
 
     def render(self, screen):
         screen.fill(DARK)
