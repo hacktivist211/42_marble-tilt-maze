@@ -7,12 +7,14 @@ Lab 4 changes (see CHANGES.md):
            waits for input instead of printing to the console.
   Task 3 - a difficulty menu and replay: Easy / Medium / Hard control tilt
            strength, friction and the time limit.
+  Task 4 - sound feedback for bounces, the goal and the time-out.
 """
 import math
 
 import pygame
 
 from .marble import Marble
+from .sounds import SoundBank
 from .wall import Wall
 
 WHITE = (255, 255, 255)
@@ -25,6 +27,7 @@ WIN_COLOR = (90, 220, 140)
 LOSE_COLOR = (240, 110, 110)
 
 RESTITUTION = 0.45          # how bouncy the walls are
+BOUNCE_SOUND_MIN = 1.2      # only play a bounce sound above this impact speed
 
 
 class GameEngine:
@@ -54,6 +57,7 @@ class GameEngine:
         self.big_font = pygame.font.SysFont("Arial", 40, bold=True)
         self.title_font = pygame.font.SysFont("Arial", 34, bold=True)
 
+        self.sounds = SoundBank()
 
         self.difficulty = "Medium"
         self.game_over = False
@@ -69,6 +73,7 @@ class GameEngine:
         self.start_ticks = pygame.time.get_ticks()
 
         self.state = start_state or self.MENU
+        self._last_bounce_ms = -1000
         if self.state == self.PLAYING:
             self.start_round(self.difficulty)
 
@@ -186,6 +191,9 @@ class GameEngine:
         self.result = result
         if result == "solved":
             self.finish_time_ms = pygame.time.get_ticks() - self.start_ticks
+            self.sounds.goal()
+        else:
+            self.sounds.timeout()
         self.state = self.END
 
     # ---------------------------------------------------------------- physics
@@ -232,9 +240,19 @@ class GameEngine:
                 if vn < 0:                   # move only if closing on the wall
                     self.marble.vx -= (1 + RESTITUTION) * vn * nx
                     self.marble.vy -= (1 + RESTITUTION) * vn * ny
+                    self._play_bounce(-vn)
                 moved = True
             if not moved:
                 break
+
+    def _play_bounce(self, impact_speed):
+        if impact_speed < BOUNCE_SOUND_MIN:
+            return
+        now = pygame.time.get_ticks()
+        if now - self._last_bounce_ms < 90:   # do not machine-gun the sound
+            return
+        self._last_bounce_ms = now
+        self.sounds.bounce(min(1.0, impact_speed / self.max_speed))
 
     # ---------------------------------------------------------------- render
     def render(self, screen):
